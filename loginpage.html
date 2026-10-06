@@ -1,0 +1,308 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Login</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, #141e30, #243b55);
+            padding: 20px;
+        }
+
+        .login-box {
+            width: 100%;
+            max-width: 380px;
+            padding: 35px;
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.3);
+        }
+
+        h2 {
+            text-align: center;
+            color: #243b55;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #777;
+            font-size: 14px;
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 18px;
+            border: 1px solid #ccc;
+            border-radius: 7px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #243b55;
+            box-shadow: 0 0 0 2px #243b5520;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 7px;
+            background: #243b55;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+
+        button:hover {
+            background: #141e30;
+        }
+
+        .register-btn {
+            margin-top: 12px;
+            background: #e9edf2;
+            color: #243b55;
+        }
+
+        .register-btn:hover {
+            background: #dce3eb;
+        }
+
+        #message {
+            text-align: center;
+            font-size: 14px;
+            margin-top: 18px;
+            overflow-wrap: anywhere;
+        }
+
+        .note {
+            margin-top: 20px;
+            font-size: 11px;
+            line-height: 1.5;
+            color: #777;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="login-box">
+        <h2>Welcome Back</h2>
+        <p class="subtitle">Sign in to your account</p>
+
+        <form id="loginForm">
+            <label for="username">Username</label>
+            <input
+                type="text"
+                id="username"
+                placeholder="Enter username"
+                autocomplete="username"
+                required
+            >
+
+            <label for="password">Password</label>
+            <input
+                type="password"
+                id="password"
+                placeholder="Enter password"
+                autocomplete="current-password"
+                required
+            >
+
+            <button type="submit">Login</button>
+            <button type="button" class="register-btn"
+                    id="registerBtn">
+                Create Demo Account
+            </button>
+        </form>
+
+        <p id="message" role="status" aria-live="polite"></p>
+
+        <p class="note">
+            Demo only: account records are stored in this browser.
+        </p>
+    </div>
+
+    <script>
+        const ITERATIONS = 600000;
+
+        // Convert bytes to hexadecimal text.
+        function toHex(bytes) {
+            return Array.from(bytes)
+                .map(byte => byte.toString(16).padStart(2, "0"))
+                .join("");
+        }
+
+        // Generate a salted PBKDF2-SHA-256 password hash.
+        async function hashPassword(password, salt) {
+            const encoder = new TextEncoder();
+
+            const keyMaterial = await crypto.subtle.importKey(
+                "raw",
+                encoder.encode(password),
+                "PBKDF2",
+                false,
+                ["deriveBits"]
+            );
+
+            const hash = await crypto.subtle.deriveBits(
+                {
+                    name: "PBKDF2",
+                    salt: salt,
+                    iterations: ITERATIONS,
+                    hash: "SHA-256"
+                },
+                keyMaterial,
+                256
+            );
+
+            return new Uint8Array(hash);
+        }
+
+        // Derive a new random salt for every account.
+        async function registerUser(username, password) {
+            const salt = crypto.getRandomValues(
+                new Uint8Array(16)
+            );
+
+            const hash = await hashPassword(password, salt);
+
+            const account = {
+                salt: toHex(salt),
+                hash: toHex(hash),
+                iterations: ITERATIONS,
+                algorithm: "PBKDF2-SHA-256"
+            };
+
+            // Demo storage only; not suitable for production.
+            localStorage.setItem(
+                "demo_user_" + username,
+                JSON.stringify(account)
+            );
+        }
+
+        // Check the entered password against the stored hash.
+        async function verifyUser(username, password) {
+            const saved = localStorage.getItem(
+                "demo_user_" + username
+            );
+
+            if (!saved) {
+                return false;
+            }
+
+            const account = JSON.parse(saved);
+
+            const salt = new Uint8Array(
+                account.salt.match(/.{2}/g)
+                    .map(byte => parseInt(byte, 16))
+            );
+
+            const hash = await hashPassword(password, salt);
+
+            // Compare the derived hash with the saved hash.
+            return toHex(hash) === account.hash;
+        }
+
+        const message = document.getElementById("message");
+        const form = document.getElementById("loginForm");
+        const registerBtn = document.getElementById("registerBtn");
+
+        function showMessage(text, success = false) {
+            message.textContent = text;
+            message.style.color = success ? "green" : "crimson";
+        }
+
+        function getCredentials() {
+            return {
+                username: document.getElementById("username")
+                    .value.trim(),
+                password: document.getElementById("password").value
+            };
+        }
+
+        registerBtn.addEventListener("click", async () => {
+            const { username, password } = getCredentials();
+
+            if (!username || !password) {
+                showMessage("Enter a username and password.");
+                return;
+            }
+
+            if (password.length < 8) {
+                showMessage("Use at least 8 characters for this demo.");
+                return;
+            }
+
+            if (localStorage.getItem("demo_user_" + username)) {
+                showMessage("Username already exists.");
+                return;
+            }
+
+            try {
+                registerBtn.disabled = true;
+
+                await registerUser(username, password);
+
+                showMessage(
+                    "Demo account created. You can now log in.",
+                    true
+                );
+            } catch (error) {
+                showMessage(
+                    "Secure crypto is unavailable. Use HTTPS or localhost."
+                );
+            } finally {
+                registerBtn.disabled = false;
+            }
+        });
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const { username, password } = getCredentials();
+
+            try {
+                const valid = await verifyUser(username, password);
+
+                if (valid) {
+                    showMessage(
+                        "Login successful! Welcome, " + username + ".",
+                        true
+                    );
+                } else {
+                    showMessage("Invalid username or password.");
+                }
+            } catch (error) {
+                showMessage("Login failed. Please try again.");
+            }
+        });
+    </script>
+
+</body>
+</html>
